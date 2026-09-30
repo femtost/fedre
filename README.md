@@ -7,7 +7,7 @@ Federated receiver network
 
 To receive data crossing the Internet
   - P2P hole-punching: may not work at home or in office
-  - Phone as receiver: usually not work as it's behind operator's NAT
+  - Phone as receiver: usually not working as it's behind operator's NAT
 
 
 # Specifications
