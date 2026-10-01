@@ -1,1 +1,196 @@
+<head>
+	<title>Fedre Test Client</title>
+</head>
+<body style="padding-left:25vw; padding-right:25vw;">
+	<div>&nbsp;</div>
+	<h1>Guide</h1>
+	Open DevTools console to see log.
+	<button onclick="sendMessage(event,'johndoe+0');">Send to j+0</button>
+	<button onclick="sendMessage(event,'johndoe+1');">Send to j+1</button>
+</body>
+<script>
+	window.print = null;
+	var log=console.log;
+	const SERVER_LIST_URL = "https://femtost.github.io/fedre/servers.json";
+	const ROOT_SERVER = "s1.femtost.com";
+	var username;
+	var number;
+	var mySocket;
 
+	// To json
+	function toJson(obj){
+		return JSON.stringify(obj,null,4);
+	}
+
+	// From json
+	function fromJson(str){
+		try { return JSON.parse(str); }
+		catch{ return null; }
+	}
+
+	// Async lock
+	function newLock(){
+		var unlock,lock=new Promise((res,rej)=>{ unlock=res; });
+		return [lock,unlock];
+	}
+
+	// HTTP
+	async function httpxPost(url,data) {
+  		try {
+    		const response = await fetch(url, {
+      			method: 'POST',
+      			headers: { 'Content-Type': 'application/json' },
+      			body: JSON.stringify(data) // Converts JS object to a JSON string
+    		});
+
+    		// Fetch does NOT throw errors for 404 or 500 status codes; you must check manually
+    		if (!response.ok) {
+      			throw new Error(`HTTP error! Status: ${response.status}`);
+    		}
+    		const result = await response.json(); // Parses the JSON response from the server
+    		console.log('Result:', result);
+    		return result;
+  		} catch (error) {
+    		console.error('Error:', error);
+    		throw new Error(error);
+  		}
+	}
+
+	// Try register user id
+	async function tryReg(server){
+		window.username = prompt("Enter username:","johndoe");
+		window.number = prompt("Enter number (optional):",0);
+		var password = prompt("Enter password:","123456");
+		if (username==null || number==null || password==null) return;
+		username = username.trim();
+		number = number.trim();
+		password = password.trim();
+		if (username.length==0 || number.length==0 || password.length==0) return;
+
+		var result = httpxPost(`https://${server.address}/api/register`,{
+			username, number, password
+		});
+		log(result);
+		// Save to connect
+		window.password = password;
+	}
+
+	// Connect
+	async function connect(server){
+		// WARN: WSS HERE
+		var url = `wss://${server.address}/connect`;
+		var user = encodeURIComponent(window.username); 
+		var num = encodeURIComponent(window.number);
+		var pw = encodeURIComponent(window.password);
+		url = `${url}?u=${user}&n=${num}&p=${pw}`; 
+
+		const ws = new WebSocket(url);
+		ws.onopen = () => {
+    		console.log("connected");
+    		ws.send("hello");
+    		window.mySocket = ws;
+		};
+		ws.onmessage = (event) => {
+    		console.log("received:", event.data);
+    		var obj = fromJson(event.data);
+
+    		if (obj!=null && obj.dataType=="session-info"){
+    			window.sessionId = obj.sessionId;
+    			log("Fedre session id:",window.sessionId);
+    		}
+    		if (obj!=null && obj.dataType=="incoming-msg"){
+    			let from = obj.from;
+    			let msg = obj.message;
+    			alert(`${from} says: ${msg}`);
+    		}
+		};
+		ws.onerror = (error) => {
+    		console.error("WebSocket error:", error);
+		};
+		ws.onclose = () => {
+    		console.log("disconnected");
+		};
+	}
+
+	// Send 
+	async function sendMessage(event,userAndNum){
+		if (window.sessionId==null){
+			alert("No connection to Fedre network");
+			return;
+		}
+		// var userAndNum = prompt("Enter username+num to send msg to:",
+		// 	"johndoe+0");
+
+		if (userAndNum==null || userAndNum.trim().length==0) 
+			return;
+		if (userAndNum.indexOf("+")==-1)
+			userAndNum += "+0";
+
+		var [user,num] = userAndNum.split("+");
+		log("Finding",user,num);
+
+		// Find target user
+		var result = await httpxPost(`https://${ROOT_SERVER}/api/locate-user`,{
+			myUsername:window.username, myNumber:window.number,
+			sessionId:window.sessionId,
+			findUsername:user, findNumber:num
+		});		
+		log(result);
+
+		// Send
+		if (result.error != null){
+			alert(result.error);
+			return;
+		}
+		if (result.info != null){
+			alert(result.info);
+			return;
+		}
+		var msg = prompt("Enter message:",Date.now());
+		var targetServer = result.targetServer;
+		var res = await httpxPost(`https://${targetServer}/api/send-msg`,{
+			from:`${window.username}+${window.number}`,
+			targetUsername:user, targetNumber:num, message:msg
+		});
+		alert(toJson(res));
+	}
+
+	// Main
+	// Sample receiver point: johndoe@s1.femtost.com (equiv: johndoe+0@s1.femtost.com)
+	// or: johndoe+123@s1.femtost.com
+	async function main(){
+		log("Fedre client test");
+		var json = await (await fetch(SERVER_LIST_URL)).text();
+		var servers = fromJson(json);
+
+		for (let s of servers){
+			try{
+				let url = `https://${s.address}`;			
+				let res = await fetch(url);
+				let t = await res.text();
+
+				if (res.status==200)
+					s.online = true;
+				else 
+					s.online = false;
+			}catch{
+				s.online = false;
+			}
+		}
+		log(servers);
+		var onlineServers = servers.filter(x=>x.online==true);
+
+		if (onlineServers.length==0){
+			alert("No Fedre servers online");
+			return;
+		}
+
+		// Reg (optional)
+		var i = Math.floor(Math.random()*onlineServers.length);
+		await tryReg(onlineServers[i]);
+
+		// Connect
+		await connect(onlineServers[i]);
+	}
+	window.addEventListener("load",main);
+</script>
