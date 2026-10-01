@@ -1,0 +1,9 @@
+name: fedre
+description: Federated Receiver Network
+version: 0.1.0
+
+environment:
+    sdk: ^3.0.0
+dependencies:
+    crypto: ^3.0.7
+    http: ^1.6.0
